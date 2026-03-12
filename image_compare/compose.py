@@ -1,0 +1,89 @@
+import math
+
+import numpy as np
+from numpy.typing import NDArray
+from PIL import Image, ImageDraw, ImageFont
+from scipy.cluster.hierarchy import fcluster, linkage
+
+
+def cluster_images(
+    similarity_matrix: NDArray, threshold: float = 0.5
+) -> list[list[int]]:
+    """Cluster images based on similarity matrix using hierarchical clustering.
+
+    Returns a list of clusters, each cluster is a list of image indices.
+    Images within each cluster are ordered by their index.
+    """
+    n = similarity_matrix.shape[0]
+    if n <= 1:
+        return [list(range(n))]
+
+    distance_matrix = 1.0 - similarity_matrix
+    np.fill_diagonal(distance_matrix, 0)
+    distance_matrix = np.clip(distance_matrix, 0, None)
+
+    # Convert to condensed form for scipy
+    condensed = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            condensed.append(distance_matrix[i, j])
+    condensed = np.array(condensed)
+
+    Z = linkage(condensed, method="average")
+    labels = fcluster(Z, t=threshold, criterion="distance")
+
+    clusters: dict[int, list[int]] = {}
+    for idx, label in enumerate(labels):
+        clusters.setdefault(int(label), []).append(idx)
+
+    return [clusters[k] for k in sorted(clusters)]
+
+
+def create_grid(
+    images: list[Image.Image],
+    labels: list[str],
+    cols: int | None = None,
+    label_height: int = 30,
+) -> Image.Image:
+    """Create a grid image from a list of PIL images with labels.
+
+    All images are resized to a common size (the size of the first image).
+    Labels are drawn below each image cell.
+    """
+    if not images:
+        raise ValueError("No images provided")
+
+    n = len(images)
+    if cols is None:
+        cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+
+    cell_w, cell_h = images[0].size
+    total_cell_h = cell_h + label_height
+
+    grid = Image.new("RGB", (cols * cell_w, rows * total_cell_h), color=(0, 0, 0))
+    draw = ImageDraw.Draw(grid)
+
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans.ttf", 14)
+    except OSError:
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        except OSError:
+            font = ImageFont.load_default()
+
+    for idx, (img, label) in enumerate(zip(images, labels)):
+        row, col = divmod(idx, cols)
+        x = col * cell_w
+        y = row * total_cell_h
+
+        resized = img.resize((cell_w, cell_h), Image.LANCZOS)
+        grid.paste(resized, (x, y))
+
+        bbox = draw.textbbox((0, 0), label, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_x = x + (cell_w - text_w) // 2
+        text_y = y + cell_h + (label_height - (bbox[3] - bbox[1])) // 2
+        draw.text((text_x, text_y), label, fill=(255, 255, 255), font=font)
+
+    return grid

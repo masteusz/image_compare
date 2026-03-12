@@ -1,0 +1,18 @@
+[project]
+name = "image-compare"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "Pillow>=11.0",
+    "scikit-image>=0.24",
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "imagehash>=4.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
