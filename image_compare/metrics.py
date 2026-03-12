@@ -1,8 +1,11 @@
 import imagehash
 import numpy as np
+import structlog
 from numpy.typing import NDArray
 from PIL import Image
 from skimage.metrics import structural_similarity
+
+log = structlog.get_logger()
 
 
 def compute_ssim(img_a: NDArray, img_b: NDArray) -> float:
@@ -16,13 +19,16 @@ def compute_ssim(img_a: NDArray, img_b: NDArray) -> float:
         win_size = 3
 
     is_multichannel = img_a.ndim == 3
-    return structural_similarity(
+    log.debug("computing ssim", shape=img_a.shape, win_size=win_size, multichannel=is_multichannel)
+    result = structural_similarity(
         img_a,
         img_b,
         win_size=win_size,
         channel_axis=2 if is_multichannel else None,
         data_range=255,
     )
+    log.debug("ssim computed", value=f"{result:.4f}")
+    return result
 
 
 def compute_histogram_correlation(img_a: NDArray, img_b: NDArray) -> float:
@@ -47,11 +53,14 @@ def compute_histogram_correlation(img_a: NDArray, img_b: NDArray) -> float:
 
         denom = np.sqrt(np.sum(hist_a**2) * np.sum(hist_b**2))
         if denom == 0:
+            log.debug("histogram denominator is zero, defaulting correlation to 1.0")
             correlations.append(1.0)
         else:
             correlations.append(np.sum(hist_a * hist_b) / denom)
 
-    return float(np.mean(correlations))
+    result = float(np.mean(correlations))
+    log.debug("histogram correlation computed", value=f"{result:.4f}")
+    return result
 
 
 def compute_phash_similarity(img_a: Image.Image, img_b: Image.Image) -> float:
@@ -63,7 +72,9 @@ def compute_phash_similarity(img_a: Image.Image, img_b: Image.Image) -> float:
     hash_b = imagehash.phash(img_b)
     max_bits = len(hash_a.hash.flatten())
     distance = hash_a - hash_b
-    return 1.0 - (distance / max_bits)
+    similarity = 1.0 - (distance / max_bits)
+    log.debug("phash computed", distance=distance, max_bits=max_bits, similarity=f"{similarity:.4f}")
+    return similarity
 
 
 def compute_pairwise_similarities(
@@ -76,6 +87,8 @@ def compute_pairwise_similarities(
     Weights are (ssim_weight, histogram_weight, phash_weight).
     """
     n = len(images)
+    n_pairs = n * (n - 1) // 2
+    log.info("computing pairwise similarities", n_images=n, n_pairs=n_pairs, weights=weights)
     matrix = np.ones((n, n), dtype=float)
 
     w_ssim, w_hist, w_phash = weights
@@ -93,4 +106,15 @@ def compute_pairwise_similarities(
             matrix[i, j] = combined
             matrix[j, i] = combined
 
+            log.debug(
+                "pair similarity",
+                i=i,
+                j=j,
+                ssim=f"{ssim:.4f}",
+                hist=f"{hist_norm:.4f}",
+                phash=f"{phash:.4f}",
+                combined=f"{combined:.4f}",
+            )
+
+    log.info("pairwise similarities complete", matrix_shape=matrix.shape)
     return matrix

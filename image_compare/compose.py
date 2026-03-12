@@ -1,9 +1,12 @@
 import math
 
 import numpy as np
+import structlog
 from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
 from scipy.cluster.hierarchy import fcluster, linkage
+
+log = structlog.get_logger()
 
 
 def cluster_images(
@@ -16,7 +19,10 @@ def cluster_images(
     """
     n = similarity_matrix.shape[0]
     if n <= 1:
+        log.info("clustering skipped", reason="single image or empty")
         return [list(range(n))]
+
+    log.info("clustering images", n_images=n, threshold=threshold, method="average")
 
     distance_matrix = 1.0 - similarity_matrix
     np.fill_diagonal(distance_matrix, 0)
@@ -36,7 +42,13 @@ def cluster_images(
     for idx, label in enumerate(labels):
         clusters.setdefault(int(label), []).append(idx)
 
-    return [clusters[k] for k in sorted(clusters)]
+    result = [clusters[k] for k in sorted(clusters)]
+    log.info(
+        "clustering complete",
+        n_clusters=len(result),
+        cluster_sizes=[len(c) for c in result],
+    )
+    return result
 
 
 def create_grid(
@@ -61,16 +73,27 @@ def create_grid(
     cell_w, cell_h = images[0].size
     total_cell_h = cell_h + label_height
 
+    log.info(
+        "creating grid",
+        n_images=n,
+        grid=f"{rows}x{cols}",
+        cell_size=f"{cell_w}x{cell_h}",
+        total_size=f"{cols * cell_w}x{rows * total_cell_h}",
+    )
+
     grid = Image.new("RGB", (cols * cell_w, rows * total_cell_h), color=(0, 0, 0))
     draw = ImageDraw.Draw(grid)
 
     try:
         font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans.ttf", 14)
+        log.debug("font loaded", path="/usr/share/fonts/TTF/DejaVuSans.ttf")
     except OSError:
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+            log.debug("font loaded", path="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
         except OSError:
             font = ImageFont.load_default()
+            log.debug("font loaded", path="default (built-in)")
 
     for idx, (img, label) in enumerate(zip(images, labels)):
         row, col = divmod(idx, cols)
