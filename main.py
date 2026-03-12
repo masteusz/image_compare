@@ -45,14 +45,21 @@ def process_sequence(
     arrays: list[np.ndarray] = []
     labels: list[str] = []
 
-    # Use the first image's size as reference
+    max_dim = 1280
     ref_size: tuple[int, int] | None = None
 
     for path in paths:
         img = Image.open(path).convert("RGB")
         if ref_size is None:
-            ref_size = img.size
-            seq_log.debug("reference size set", size=ref_size, source=path.name)
+            w, h = img.size
+            if max(w, h) > max_dim:
+                scale = max_dim / max(w, h)
+                ref_size = (round(w * scale), round(h * scale))
+                img = img.resize(ref_size, Image.LANCZOS)
+                seq_log.debug("reference size set (downscaled)", original=f"{w}x{h}", size=ref_size)
+            else:
+                ref_size = img.size
+                seq_log.debug("reference size set", size=ref_size)
         else:
             original_size = img.size
             img = img.resize(ref_size, Image.LANCZOS)
@@ -64,7 +71,7 @@ def process_sequence(
             )
         pil_images.append(img)
         arrays.append(np.array(img))
-        labels.append(path.parent.name)
+        labels.append(path.name)
         seq_log.debug("image loaded", file=path.name, folder=path.parent.name)
 
     if len(pil_images) < 2:

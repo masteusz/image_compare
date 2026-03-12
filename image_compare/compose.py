@@ -55,12 +55,11 @@ def create_grid(
     images: list[Image.Image],
     labels: list[str],
     cols: int | None = None,
-    label_height: int = 30,
 ) -> Image.Image:
     """Create a grid image from a list of PIL images with labels.
 
     All images are resized to a common size (the size of the first image).
-    Labels are drawn below each image cell.
+    Labels are drawn overlaid on the bottom of each image.
     """
     if not images:
         raise ValueError("No images provided")
@@ -71,42 +70,53 @@ def create_grid(
     rows = math.ceil(n / cols)
 
     cell_w, cell_h = images[0].size
-    total_cell_h = cell_h + label_height
 
     log.info(
         "creating grid",
         n_images=n,
         grid=f"{rows}x{cols}",
         cell_size=f"{cell_w}x{cell_h}",
-        total_size=f"{cols * cell_w}x{rows * total_cell_h}",
+        total_size=f"{cols * cell_w}x{rows * cell_h}",
     )
 
-    grid = Image.new("RGB", (cols * cell_w, rows * total_cell_h), color=(0, 0, 0))
+    grid = Image.new("RGB", (cols * cell_w, rows * cell_h), color=(0, 0, 0))
     draw = ImageDraw.Draw(grid)
 
     try:
-        font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans.ttf", 14)
+        font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans.ttf", 24)
         log.debug("font loaded", path="/usr/share/fonts/TTF/DejaVuSans.ttf")
     except OSError:
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
             log.debug("font loaded", path="/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
         except OSError:
             font = ImageFont.load_default()
             log.debug("font loaded", path="default (built-in)")
 
+    padding = 6
+
     for idx, (img, label) in enumerate(zip(images, labels)):
         row, col = divmod(idx, cols)
         x = col * cell_w
-        y = row * total_cell_h
+        y = row * cell_h
 
         resized = img.resize((cell_w, cell_h), Image.LANCZOS)
         grid.paste(resized, (x, y))
 
         bbox = draw.textbbox((0, 0), label, font=font)
         text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+
+        # Semi-transparent background bar behind text
+        bar_y = y + cell_h - text_h - padding * 2
+        overlay = Image.new("RGBA", (cell_w, text_h + padding * 2), (0, 0, 0, 160))
+        grid.paste(
+            Image.composite(overlay, grid.crop((x, bar_y, x + cell_w, bar_y + overlay.size[1])).convert("RGBA"), overlay),
+            (x, bar_y),
+        )
+
         text_x = x + (cell_w - text_w) // 2
-        text_y = y + cell_h + (label_height - (bbox[3] - bbox[1])) // 2
+        text_y = bar_y + padding
         draw.text((text_x, text_y), label, fill=(255, 255, 255), font=font)
 
     return grid
